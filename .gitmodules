@@ -1,0 +1,3 @@
+[submodule "External/Adk"]
+	path = External/Adk
+	url = https://github.com/ArthurGamerHD/Adk
