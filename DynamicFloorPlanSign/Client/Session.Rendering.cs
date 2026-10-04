@@ -105,7 +105,11 @@ namespace DynamicFloorPlanSign
             if (string.IsNullOrWhiteSpace(vanillaModel))
                 return;
 
-            string renderModel = RuntimeMwmBuilder.BuildModel(text, typeof(DynamicFloorPlanSignSession), ModContext.ModItem);
+            string renderModel = RuntimeMwmBuilder.BuildModel(text, typeof(DynamicFloorPlanSignSession),
+                () => RestoreBlockModel(block));
+            if (renderModel == null)
+                return;
+
             ApplyRenderModelKeepingVanillaState(block, renderModel, vanillaModel);
         }
 

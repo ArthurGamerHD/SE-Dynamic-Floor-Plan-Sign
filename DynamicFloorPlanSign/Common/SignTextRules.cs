@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using DynamicFloorPlanSign.Common.Fonts;
 
 namespace DynamicFloorPlanSign.Common
 {
@@ -226,20 +227,6 @@ namespace DynamicFloorPlanSign.Common
                     continue;
                 }
 
-                if (c >= 'A' && c <= 'Z')
-                {
-                    AppendVisibleToken(current, c.ToString(), ref pendingSpace);
-                    continue;
-                }
-
-                // Native atlas glyph aliases plus synthesized runtime primitives.
-                if (c == '~' || c == '^' || c == '|' || c == '/' || c == '\\' ||
-                    c == '+' || c == '-' || c == '=' || c == '_' || c == '<' || c == '>')
-                {
-                    AppendVisibleToken(current, c.ToString(), ref pendingSpace);
-                    continue;
-                }
-
                 if (c >= '0' && c <= '9')
                 {
                     long value = 0;
@@ -253,6 +240,12 @@ namespace DynamicFloorPlanSign.Common
                     i--;
 
                     AppendVisibleToken(current, ToRoman(value), ref pendingSpace);
+                    continue;
+                }
+
+                if (IsRuntimePrimitive(c) || (!char.IsWhiteSpace(c) && SignFonts.HasGlyph(c)))
+                {
+                    AppendVisibleToken(current, c.ToString(), ref pendingSpace);
                     continue;
                 }
 
@@ -277,6 +270,11 @@ namespace DynamicFloorPlanSign.Common
                 return second.ToString();
 
             return first.ToString() + "\n" + second.ToString();
+        }
+
+        public static bool IsRuntimePrimitive(char c)
+        {
+            return c == '|' || c == '/' || c == '\\' || c == '+' || c == '-' || c == '=' || c == '_' || c == '<' || c == '>';
         }
 
         static void AppendVisibleToken(StringBuilder result, string token, ref bool pendingSpace)

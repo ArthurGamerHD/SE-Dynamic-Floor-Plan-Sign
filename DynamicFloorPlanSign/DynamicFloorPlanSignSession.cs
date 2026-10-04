@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Adk.Utils;
 using DynamicFloorPlanSign.Client.Rendering;
 using DynamicFloorPlanSign.Client.UI;
+using DynamicFloorPlanSign.Common.Fonts;
 using Generated;
 using Sandbox.Game.Entities;
 using Sandbox.ModAPI;
@@ -17,6 +18,8 @@ namespace DynamicFloorPlanSign
     {
         internal static DynamicFloorPlanSignSession Instance;
 
+        const string NATIVE_FONT_XML = @"SignFonts\Native\FontData.xml";
+
         List<Action> _nextFrame = new List<Action>();
         List<Action> _thisFrame = new List<Action>();
         bool _registered;
@@ -26,6 +29,9 @@ namespace DynamicFloorPlanSign
         public override void LoadData()
         {
             LogHelper.LogInfo("Init - Version " + Constants.VersionName);
+
+            SignFonts.AddFont(-1, NATIVE_FONT_XML, 0, null, ModContext.ModItem);
+            SignFonts.Load();
         }
 
         public override void BeforeStart()
@@ -136,6 +142,7 @@ namespace DynamicFloorPlanSign
             }
 
             RuntimeMwmBuilder.ClearSessionCache(typeof(DynamicFloorPlanSignSession));
+            SignFonts.Unload();
 
             _tracked.Clear();
             _trackedGrids.Clear();

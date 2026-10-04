@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<font
+	xmlns="http://xna.microsoft.com/bitmapfont"
+	name="FloorPlanNative" base="19" height="19"
+	face="WarningSignsEaster" size="19"
+	>
+<bitmaps>
+<bitmap id="0" name="..\..\Textures\Models\Cubes\WarningSignsEaster_alphamask.dds" size="1024x1024" />
+</bitmaps>
+<glyphs>
+<glyph ch="~" code="007e" bm="0" origin="295,890" size="23x21" aw="23" lsb="0" />
+<glyph ch="^" code="005e" bm="0" origin="319,891" size="22x20" aw="22" lsb="0" />
+<glyph ch="A" code="0041" bm="0" origin="297,913" size="19x19" aw="19" lsb="0" />
+<glyph ch="B" code="0042" bm="0" origin="316,913" size="15x19" aw="15" lsb="0" />
+<glyph ch="C" code="0043" bm="0" origin="331,913" size="17x19" aw="17" lsb="0" />
+<glyph ch="D" code="0044" bm="0" origin="349,913" size="17x19" aw="17" lsb="0" />
+<glyph ch="E" code="0045" bm="0" origin="366,913" size="14x19" aw="14" lsb="0" />
+<glyph ch="F" code="0046" bm="0" origin="381,913" size="13x19" aw="13" lsb="0" />
+<glyph ch="G" code="0047" bm="0" origin="393,913" size="18x19" aw="18" lsb="0" />
+<glyph ch="H" code="0048" bm="0" origin="412,913" size="17x19" aw="17" lsb="0" />
+<glyph ch="I" code="0049" bm="0" origin="430,913" size="6x19" aw="6" lsb="0" />
+<glyph ch="J" code="004a" bm="0" origin="436,913" size="12x19" aw="12" lsb="0" />
+<glyph ch="K" code="004b" bm="0" origin="449,913" size="16x19" aw="16" lsb="0" />
+<glyph ch="L" code="004c" bm="0" origin="297,937" size="13x19" aw="13" lsb="0" />
+<glyph ch="M" code="004d" bm="0" origin="310,937" size="20x19" aw="20" lsb="0" />
+<glyph ch="N" code="004e" bm="0" origin="331,937" size="17x19" aw="17" lsb="0" />
+<glyph ch="O" code="004f" bm="0" origin="349,937" size="19x19" aw="19" lsb="0" />
+<glyph ch="P" code="0050" bm="0" origin="369,937" size="15x19" aw="15" lsb="0" />
+<glyph ch="Q" code="0051" bm="0" origin="383,937" size="20x22" aw="20" lsb="0" />
+<glyph ch="R" code="0052" bm="0" origin="404,937" size="15x19" aw="15" lsb="0" />
+<glyph ch="S" code="0053" bm="0" origin="419,937" size="15x19" aw="15" lsb="0" />
+<glyph ch="T" code="0054" bm="0" origin="434,937" size="15x19" aw="15" lsb="0" />
+<glyph ch="U" code="0055" bm="0" origin="296,963" size="17x19" aw="17" lsb="0" />
+<glyph ch="V" code="0056" bm="0" origin="313,963" size="18x18" aw="18" lsb="0" />
+<glyph ch="W" code="0057" bm="0" origin="330,963" size="27x18" aw="27" lsb="0" />
+<glyph ch="X" code="0058" bm="0" origin="356,963" size="17x18" aw="17" lsb="0" />
+<glyph ch="Y" code="0059" bm="0" origin="373,963" size="17x18" aw="17" lsb="0" />
+<glyph ch="Z" code="005a" bm="0" origin="390,963" size="15x18" aw="15" lsb="0" />
+</glyphs>
+</font>

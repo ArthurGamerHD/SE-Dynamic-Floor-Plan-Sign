@@ -97,7 +97,7 @@ namespace DynamicFloorPlanSign
             string normalized = SignTextRules.Normalize(rawText);
             if (normalized.Length == 0)
             {
-                Notify("Sign text is empty after filtering.");
+                Notify("Sign text is empty after filtering.", MyFontEnum.Red);
                 return;
             }
 

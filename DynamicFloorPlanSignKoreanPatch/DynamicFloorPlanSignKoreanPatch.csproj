@@ -1,18 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>netframework48</TargetFramework>
-        <RootNamespace>DynamicFloorPlanSign</RootNamespace>
+        <RootNamespace>DynamicFloorPlanSignKoreanPath</RootNamespace>
         <LangVersion>6</LangVersion>
         <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
         <Configurations>Release;Debug</Configurations>
         <Platforms>AnyCPU</Platforms>
     </PropertyGroup>
-    <ItemGroup>
-        <ProjectReference Include="..\External\Adk\Adk.Analyzer\Adk.Analyzer.csproj"
-                          OutputItemType="Analyzer" ReferenceOutputAssembly="false">
-            <SetPlatform>Platform=AnyCPU</SetPlatform>
-        </ProjectReference>
-    </ItemGroup>
     <ItemGroup>
         <PackageReference Include="Mal.Mdk2.ModAnalyzers" Version="2.1.16">
             <PrivateAssets>all</PrivateAssets>
@@ -35,11 +29,5 @@
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </AdditionalFiles>
         <AdditionalFiles Remove="Content\*\**\*.cs"/>
-        <AdditionalFiles Remove="Content\Other content folders"/>
-        <AdditionalFiles Remove="Content\Data\SBC files can go here"/>
-        <None Remove="thumb.png"/>
     </ItemGroup>
-    <Import Project="..\External\Adk\Adk.Utils\Adk.Utils.projitems" Label="Shared" />
-    <Import Project="..\External\Adk\Adk.Compression\Adk.Compression.projitems" Label="Shared" />
-    <Import Project="..\External\Adk\Adk.Image\Adk.Image.projitems" Label="Shared" />
 </Project>

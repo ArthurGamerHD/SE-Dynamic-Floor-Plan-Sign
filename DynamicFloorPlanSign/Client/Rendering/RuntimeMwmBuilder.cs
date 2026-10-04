@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using Adk.Utils;
 using DynamicFloorPlanSign.Common;
+using DynamicFloorPlanSign.Common.Fonts;
 using Sandbox.ModAPI;
 using VRage.Library.Utils;
 
@@ -14,6 +16,8 @@ namespace DynamicFloorPlanSign.Client.Rendering
     {
         const string TEMPLATE_PATH = @"Models\Cubes\large\FloorPlanMaintenance_LOD0.mwm";
         const string SIGN_MATERIAL = "WarningSignsEaster";
+        const string SIGN_ALPHAMASK = @"Textures\Models\Cubes\WarningSignsEaster_alphamask.dds";
+        const string GLYPH_MATERIAL_PREFIX = "DynSignGlyph_";
         const int TEMPLATE_GLYPH_COUNT = 11; // "MAINTENANCE".Length
         const int INDEXED_TAG_VERSION = 1066002;
         const int READ_CHUNK_SIZE = 64 * 1024;
@@ -31,6 +35,8 @@ namespace DynamicFloorPlanSign.Client.Rendering
             1.0496295033135539e-07f, 1.0351805686950684f, -1.1994400024414062f, 1f
         };
 
+        static readonly string[] GeneratedFilePatterns = { "*.mwm", "*.dds" };
+
         static readonly int[] CornerSourceVertices = { 2971, 2970, 2969, 3002 };
 
         const float TEXT_X_MIN = -0.433349609375f;
@@ -38,7 +44,6 @@ namespace DynamicFloorPlanSign.Client.Rendering
         const float TEXT_Y_MIN = 0.98974609375f;
         const float TEXT_Y_MAX = 1.0693359375f;
         const float TEXT_Z = -1.1767578125f;
-        const float ATLAS_SIZE = 1024f;
         const float LETTER_GAP = 0.001f;
 
         // Vanilla FloorPlanMaintenance_LOD0 WarningSignsEaster marker geometry.
@@ -52,35 +57,20 @@ namespace DynamicFloorPlanSign.Client.Rendering
         const float MIRRORED_TEXT_X_MIN = -TEXT_X_MAX;
         const float MIRRORED_TEXT_X_MAX = -TEXT_X_MIN;
 
-        sealed class Glyph
-        {
-            public int X0, X1, Y0, Y1;
-
-            public float Aspect
-            {
-                get
-                {
-                    float w = X1 - X0 + 1 + 2f;
-                    float h = Y1 - Y0 + 1 + 2f;
-                    return w / h;
-                }
-            }
-
-            public void GetUv(out float u0, out float v0, out float u1, out float v1)
-            {
-                // One-pixel padding around the visible glyph, matching the vanilla quads closely.
-                u0 = (X0 - 1f) / ATLAS_SIZE;
-                u1 = (X1 + 2f) / ATLAS_SIZE;
-                v0 = (Y0 - 1f) / ATLAS_SIZE;
-                v1 = (Y1 + 2f) / ATLAS_SIZE;
-            }
-        }
-
         struct GlyphQuad
         {
             public float X0, X1, Y0, Y1;
             public float U0, U1, V0, V1;
             public float RotationDegrees;
+            public SignFontBitmap Bitmap;
+        }
+
+        sealed class GlyphPage
+        {
+            public SignFontBitmap Bitmap;
+            public int Start;
+            public int Count;
+            public string MaskPath;
         }
 
         sealed class TagEntry
@@ -381,9 +371,12 @@ namespace DynamicFloorPlanSign.Client.Rendering
             }
         }
 
-        static readonly Dictionary<char, Glyph> Glyphs = BuildGlyphTable();
-
-        public static string BuildModel(string text, Type storageType, VRage.Game.MyObjectBuilder_Checkpoint.ModItem modItem)
+        /// <summary>
+        /// Builds (or returns the cached) model for <paramref name="text"/>. Returns null while glyph textures
+        /// are still being generated; <paramref name="onTexturesReady"/> is then called on the main thread
+        /// once they are, and building again succeeds.
+        /// </summary>
+        public static string BuildModel(string text, Type storageType, Action onTexturesReady)
         {
             if (string.IsNullOrWhiteSpace(text))
                 throw new InvalidOperationException("Sign text is empty.");
@@ -391,6 +384,38 @@ namespace DynamicFloorPlanSign.Client.Rendering
             string cached;
             if (TextModelCache.TryGetValue(text, out cached))
                 return cached;
+
+            SignTextSpec spec = SignTextRules.Parse(text);
+            if (spec == null || string.IsNullOrEmpty(spec.Text))
+                throw new InvalidOperationException("Sign text is empty after parsing controls.");
+
+            List<GlyphQuad> quads = LayoutText(spec.Text, spec.Alignment);
+            List<GlyphPage> pages = GroupQuadsByBitmap(quads);
+            int atlasQuadCount = quads.Count;
+            if (pages.Count != 0)
+                atlasQuadCount = pages[0].Start;
+
+            bool pending = false;
+            for (int i = pages.Count - 1; i >= 0; i--)
+            {
+                GlyphPage page = pages[i];
+                if (GlyphTextures.TryGetMask(page.Bitmap, storageType, onTexturesReady, out page.MaskPath))
+                    continue;
+
+                if (!GlyphTextures.IsUnavailable(page.Bitmap))
+                {
+                    pending = true;
+                    continue;
+                }
+
+                quads.RemoveRange(page.Start, page.Count);
+                for (int j = i + 1; j < pages.Count; j++)
+                    pages[j].Start -= page.Count;
+                pages.RemoveAt(i);
+            }
+
+            if (pending)
+                return null;
 
             byte[] templateBytes;
             using (BinaryReader reader = MyAPIGateway.Utilities.ReadBinaryFileInGameContent(TEMPLATE_PATH))
@@ -403,12 +428,6 @@ namespace DynamicFloorPlanSign.Client.Rendering
             MwmContainer model = ParseContainer(templateBytes);
             if (model.Version < INDEXED_TAG_VERSION)
                 throw new InvalidOperationException("Template MWM is not an indexed-tag model.");
-
-            SignTextSpec spec = SignTextRules.Parse(text);
-            if (spec == null || string.IsNullOrEmpty(spec.Text))
-                throw new InvalidOperationException("Sign text is empty after parsing controls.");
-
-            List<GlyphQuad> quads = LayoutText(spec.Text, spec.Alignment);
 
             TagEntry verticesTag = Required(model, "Vertices");
             TagEntry normalsTag = Required(model, "Normals");
@@ -469,7 +488,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
             int oldTriangleCount;
             int newTriangleCount;
             meshPartsTag.Chunk = BuildMeshPartsChunk(meshPartsTag.Chunk, model.Version, oldVertexCount,
-                markerCloneCount, quads.Count, removeMarker, cloneMarkerToLeft,
+                markerCloneCount, atlasQuadCount, pages, storageType, removeMarker, cloneMarkerToLeft,
                 out oldTriangleCount, out newTriangleCount);
 
             TagEntry modelInfo = model.Find("ModelInfo");
@@ -547,6 +566,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
         {
             TextModelCache.Clear();
             DetectorModelCache.Clear();
+            GlyphTextures.ClearSession();
 
             if (MyAPIGateway.Utilities == null || MyAPIGateway.Utilities.GamePaths == null)
                 return;
@@ -555,22 +575,23 @@ namespace DynamicFloorPlanSign.Client.Rendering
             // crashes, or disconnected clients may have left generated models behind. Scan this
             // mod's entire LocalStorage scope for MWM cache files and delete every one.
             string storageRoot = GetLocalStorageRoot();
-            string[] files;
-            try
+            List<string> files = new List<string>();
+            foreach (string pattern in GeneratedFilePatterns)
             {
-                files = PathUtils.GetFilesRecursively(storageRoot, "*.mwm");
-            }
-            catch (Exception e)
-            {
-                VRage.Utils.MyLog.Default.WriteLineAndConsole(
-                    "[DynamicFloorPlanSign] failed to enumerate cached models: " + e);
-                return;
+                try
+                {
+                    string[] found = PathUtils.GetFilesRecursively(storageRoot, pattern);
+                    if (found != null)
+                        files.AddRange(found);
+                }
+                catch (Exception e)
+                {
+                    VRage.Utils.MyLog.Default.WriteLineAndConsole(
+                        "[DynamicFloorPlanSign] failed to enumerate cached " + pattern + " files: " + e);
+                }
             }
 
-            if (files == null)
-                return;
-
-            for (int i = 0; i < files.Length; i++)
+            for (int i = 0; i < files.Count; i++)
             {
                 string fullPath = files[i];
                 if (string.IsNullOrWhiteSpace(fullPath))
@@ -587,7 +608,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 catch (Exception e)
                 {
                     VRage.Utils.MyLog.Default.WriteLineAndConsole(
-                        "[DynamicFloorPlanSign] failed to delete cached model '" + relativePath + "': " + e);
+                        "[DynamicFloorPlanSign] failed to delete cached file '" + relativePath + "': " + e);
                 }
             }
         }
@@ -600,7 +621,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 MyAPIGateway.Utilities.GamePaths.ModScopeName);
         }
 
-        static string GetLocalStorageAbsolutePath(string fileName)
+        internal static string GetLocalStorageAbsolutePath(string fileName)
         {
             return Path.Combine(GetLocalStorageRoot(), fileName);
         }
@@ -623,7 +644,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
             return start < path.Length ? path.Substring(start) : null;
         }
 
-        static byte[] ReadAllBytes(BinaryReader reader)
+        internal static byte[] ReadAllBytes(BinaryReader reader)
         {
             byte[] result = new byte[READ_CHUNK_SIZE];
             int length = 0;
@@ -682,7 +703,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
                     continue;
                 }
 
-                naturalWidth += maxHeight * GetCharacterAspect(c);
+                naturalWidth += maxHeight * GetCharacterAdvance(c);
                 drawableCount++;
             }
 
@@ -724,7 +745,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
                     continue;
                 }
 
-                totalWidth += height * GetCharacterAspect(c);
+                totalWidth += height * GetCharacterAdvance(c);
                 drawableCount++;
             }
             if (drawableCount > 1)
@@ -749,7 +770,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
                     continue;
                 }
 
-                float w = height * GetCharacterAspect(c);
+                float w = height * GetCharacterAdvance(c);
                 AppendCharacterQuads(result, c, x, x + w, lineY0, lineY1);
                 x += w + gap;
             }
@@ -757,12 +778,8 @@ namespace DynamicFloorPlanSign.Client.Rendering
             return result;
         }
 
-        static float GetCharacterAspect(char c)
+        static float GetCharacterAdvance(char c)
         {
-            Glyph g;
-            if (Glyphs.TryGetValue(c, out g))
-                return g.Aspect;
-
             switch (c)
             {
                 case '|':
@@ -776,25 +793,38 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 case '<':
                 case '>':
                     return 0.68f;
-                default:
-                    throw new InvalidOperationException("No atlas glyph or runtime primitive for '" + c + "'.");
             }
+
+            SignFontGlyph g;
+            if (SignFonts.TryGetGlyph(c, out g))
+                return (float)g.Advance / g.Height;
+
+            throw new InvalidOperationException("No font glyph or runtime primitive for '" + c + "'.");
+        }
+
+        static SignFontGlyph GetNativeGlyph(char c)
+        {
+            SignFontGlyph g;
+            if (!SignFonts.TryGetGlyph(c, out g) || !RendersOnSignAtlas(g))
+                throw new InvalidOperationException("Native sign font has no glyph for '" + c + "'.");
+            return g;
+        }
+
+        static bool RendersOnSignAtlas(SignFontGlyph g)
+        {
+            return !g.Bitmap.InMod && string.Equals(g.Bitmap.Path, SIGN_ALPHAMASK, StringComparison.OrdinalIgnoreCase);
+        }
+
+        static float GetAspect(SignFontGlyph g)
+        {
+            return (float)g.Width / g.Height;
         }
 
         static void AppendCharacterQuads(List<GlyphQuad> result, char c, float x0, float x1, float y0, float y1)
         {
-            Glyph g;
-            if (Glyphs.TryGetValue(c, out g))
-            {
-                float u0, v0, u1, v1;
-                g.GetUv(out u0, out v0, out u1, out v1);
-                result.Add(MakeQuad(x0, x1, y0, y1, u0, u1, v0, v1, 0f));
-                return;
-            }
-
             if (c == '<' || c == '>')
             {
-                Glyph chevron = Glyphs['^'];
+                SignFontGlyph chevron = GetNativeGlyph('^');
                 float u0, v0, u1, v1;
                 chevron.GetUv(out u0, out v0, out u1, out v1);
 
@@ -804,8 +834,8 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 float cy = (y0 + y1) * 0.5f;
 
                 // Build a compact upright chevron quad then rotate only its geometry.
-                float preWidth = Math.Min(boxHeight * 0.82f, boxWidth * chevron.Aspect);
-                float preHeight = preWidth / chevron.Aspect;
+                float preWidth = Math.Min(boxHeight * 0.82f, boxWidth * GetAspect(chevron));
+                float preHeight = preWidth / GetAspect(chevron);
                 float angle = c == '>' ? 90f : -90f;
                 result.Add(MakeQuad(
                     cx - preWidth * 0.5f, cx + preWidth * 0.5f,
@@ -814,9 +844,15 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 return;
             }
 
+            if (!SignTextRules.IsRuntimePrimitive(c))
+            {
+                AppendFontGlyphQuad(result, c, x0, y0, y1);
+                return;
+            }
+
             // Primitives are synthesized from narrow textured rectangles. Reusing the
             // atlas 'I' keeps the material/alpha behavior identical without new DDS assets.
-            Glyph strokeGlyph = Glyphs['I'];
+            SignFontGlyph strokeGlyph = GetNativeGlyph('I');
             float su0, sv0, su1, sv1;
             strokeGlyph.GetUv(out su0, out sv0, out su1, out sv1);
 
@@ -853,10 +889,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 // Use three adjoining rectangles so the center has only one surface.
                 // Remove the I's side padding while preserving its visible stroke width,
                 // and crop the horizontal UVs so the joins sample the middle of the I.
-                float visibleThickness = thickness * (strokeGlyph.X1 - strokeGlyph.X0 + 1f)
-                    / (strokeGlyph.X1 - strokeGlyph.X0 + 3f);
-                float strokeU0 = strokeGlyph.X0 / ATLAS_SIZE;
-                float strokeU1 = (strokeGlyph.X1 + 1f) / ATLAS_SIZE;
+                float visibleThickness = thickness * (strokeGlyph.Width - 2f) / strokeGlyph.Width;
+                float strokeU0 = (strokeGlyph.X + 1f) / strokeGlyph.Bitmap.Width;
+                float strokeU1 = (strokeGlyph.X + strokeGlyph.Width - 1f) / strokeGlyph.Bitmap.Width;
                 float armLength = (horizontalLength - visibleThickness) * 0.5f;
                 float armOffset = (horizontalLength + visibleThickness) * 0.25f;
                 float armUvLength = (sv1 - sv0) * armLength / horizontalLength;
@@ -877,6 +912,60 @@ namespace DynamicFloorPlanSign.Client.Rendering
             {
                 throw new InvalidOperationException("Unsupported runtime primitive '" + c + "'.");
             }
+        }
+
+        static void AppendFontGlyphQuad(List<GlyphQuad> result, char c, float penX, float y0, float y1)
+        {
+            SignFontGlyph g;
+            if (!SignFonts.TryGetGlyph(c, out g))
+                throw new InvalidOperationException("No font glyph for '" + c + "'.");
+
+            float scale = (y1 - y0) / g.Height;
+            float x0 = penX + g.LeftBearing * scale;
+            float u0, v0, u1, v1;
+            g.GetUv(out u0, out v0, out u1, out v1);
+            GlyphQuad quad = MakeQuad(x0, x0 + g.Width * scale, y0, y1, u0, u1, v0, v1, 0f);
+            if (!RendersOnSignAtlas(g))
+                quad.Bitmap = g.Bitmap;
+            result.Add(quad);
+        }
+
+        static List<GlyphPage> GroupQuadsByBitmap(List<GlyphQuad> quads)
+        {
+            List<GlyphQuad> ordered = new List<GlyphQuad>(quads.Count);
+            List<GlyphPage> pages = new List<GlyphPage>();
+            Dictionary<SignFontBitmap, List<GlyphQuad>> byBitmap = new Dictionary<SignFontBitmap, List<GlyphQuad>>();
+            List<SignFontBitmap> order = new List<SignFontBitmap>();
+
+            for (int i = 0; i < quads.Count; i++)
+            {
+                GlyphQuad q = quads[i];
+                if (q.Bitmap == null)
+                {
+                    ordered.Add(q);
+                    continue;
+                }
+
+                List<GlyphQuad> run;
+                if (!byBitmap.TryGetValue(q.Bitmap, out run))
+                {
+                    run = new List<GlyphQuad>();
+                    byBitmap[q.Bitmap] = run;
+                    order.Add(q.Bitmap);
+                }
+                run.Add(q);
+            }
+
+            for (int i = 0; i < order.Count; i++)
+            {
+                List<GlyphQuad> run = byBitmap[order[i]];
+                pages.Add(new GlyphPage { Bitmap = order[i], Start = ordered.Count, Count = run.Count });
+                ordered.AddRange(run);
+            }
+
+            quads.Clear();
+            quads.AddRange(ordered);
+            return pages;
         }
 
         static void AddStroke(List<GlyphQuad> result, float cx, float cy, float thickness, float length,
@@ -902,55 +991,6 @@ namespace DynamicFloorPlanSign.Client.Rendering
             q.V1 = v1;
             q.RotationDegrees = rotationDegrees;
             return q;
-        }
-
-        static Dictionary<char, Glyph> BuildGlyphTable()
-        {
-            Dictionary<char, Glyph> d = new Dictionary<char, Glyph>();
-            // Bounds measured from WarningSignsEaster_alphamask.DDS mip displayed at 1024x1024.
-            // The two atlas glyphs before A are exposed as printable aliases for sign text.
-            Add(d, '~', 296, 316, 891, 909); // up arrow
-            Add(d, '^', 320, 339, 892, 909); // chevron
-
-            Add(d, 'A', 298, 314, 914, 930);
-            Add(d, 'B', 317, 329, 914, 930);
-            Add(d, 'C', 332, 346, 914, 930);
-            Add(d, 'D', 350, 364, 914, 930);
-            Add(d, 'E', 367, 378, 914, 930);
-            Add(d, 'F', 382, 392, 914, 930);
-            Add(d, 'G', 394, 409, 914, 930);
-            Add(d, 'H', 413, 427, 914, 930);
-            Add(d, 'I', 431, 434, 914, 930);
-            Add(d, 'J', 437, 446, 914, 930);
-            Add(d, 'K', 450, 463, 914, 930);
-
-            Add(d, 'L', 298, 308, 938, 954);
-            Add(d, 'M', 311, 328, 938, 954);
-            Add(d, 'N', 332, 346, 938, 954);
-            Add(d, 'O', 350, 366, 938, 954);
-            Add(d, 'P', 370, 382, 938, 954);
-            Add(d, 'Q', 384, 401, 938, 957);
-            Add(d, 'R', 405, 417, 938, 954);
-            Add(d, 'S', 420, 432, 938, 954);
-            Add(d, 'T', 435, 447, 938, 954);
-
-            Add(d, 'U', 297, 311, 964, 980);
-            Add(d, 'V', 314, 329, 964, 979);
-            Add(d, 'W', 331, 355, 964, 979);
-            Add(d, 'X', 357, 371, 964, 979);
-            Add(d, 'Y', 374, 388, 964, 979);
-            Add(d, 'Z', 391, 403, 964, 979);
-            return d;
-        }
-
-        static void Add(Dictionary<char, Glyph> d, char c, int x0, int x1, int y0, int y1)
-        {
-            Glyph g = new Glyph();
-            g.X0 = x0;
-            g.X1 = x1;
-            g.Y0 = y0;
-            g.Y1 = y1;
-            d[c] = g;
         }
 
         static void EnsureDetectorDummy(MwmContainer model)
@@ -1292,7 +1332,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
             if (marker.Arrow)
             {
-                Glyph glyph = Glyphs['~'];
+                SignFontGlyph glyph = GetNativeGlyph('~');
                 float u0, v0, u1, v1;
                 glyph.GetUv(out u0, out v0, out u1, out v1);
                 // Vanilla arrow quad order: TL, BR, TR, BL. Chevron keeps the original vanilla UVs.
@@ -1462,13 +1502,13 @@ namespace DynamicFloorPlanSign.Client.Rendering
         }
 
         static byte[] BuildMeshPartsChunk(byte[] chunk, int version, int oldVertexCount, int markerCloneCount,
-            int glyphCount, bool removeMarker, bool cloneMarkerToLeft,
+            int glyphCount, List<GlyphPage> pages, Type storageType, bool removeMarker, bool cloneMarkerToLeft,
             out int oldTriangleCount, out int newTriangleCount)
         {
             List<MeshPart> parts = ParseMeshParts(chunk, version);
             oldTriangleCount = 0;
             newTriangleCount = 0;
-            bool replaced = false;
+            MeshPart signPart = null;
 
             for (int i = 0; i < parts.Count; i++)
             {
@@ -1518,14 +1558,21 @@ namespace DynamicFloorPlanSign.Client.Rendering
                     }
 
                     p.Indices = replacement.ToArray();
-                    replaced = true;
+                    signPart = p;
                 }
 
                 newTriangleCount += p.Indices.Length / 3;
             }
 
-            if (!replaced)
+            if (signPart == null)
                 throw new InvalidOperationException("WarningSignsEaster mesh part was not found.");
+
+            for (int i = 0; i < pages.Count; i++)
+            {
+                MeshPart page = BuildGlyphPagePart(signPart, version, pages[i], oldVertexCount + markerCloneCount, storageType);
+                parts.Add(page);
+                newTriangleCount += page.Indices.Length / 3;
+            }
 
             ByteWriter w = new ByteWriter(chunk.Length + glyphCount * 24 + 128);
             w.Write("MeshParts");
@@ -1543,6 +1590,77 @@ namespace DynamicFloorPlanSign.Client.Rendering
                 if (p.HasMaterial)
                     w.Write(p.MaterialDescriptor);
             }
+            return w.ToArray();
+        }
+
+        static MeshPart BuildGlyphPagePart(MeshPart signPart, int version, GlyphPage page, int glyphVertexStart,
+            Type storageType)
+        {
+            string materialName = GLYPH_MATERIAL_PREFIX + Fnv1A(page.MaskPath.ToUpperInvariant()).ToString("X8");
+
+            int[] indices = new int[page.Count * 6];
+            for (int g = 0; g < page.Count; g++)
+            {
+                int b = glyphVertexStart + (page.Start + g) * 4;
+                int o = g * 6;
+                indices[o + 0] = b + 0;
+                indices[o + 1] = b + 1;
+                indices[o + 2] = b + 2;
+                indices[o + 3] = b + 1;
+                indices[o + 4] = b + 3;
+                indices[o + 5] = b + 2;
+            }
+
+            Dictionary<string, string> textures = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "ColorMetalTexture", GlyphTextures.ColorMetal(storageType) },
+                { "NormalGlossTexture", GlyphTextures.NormalGloss(storageType) },
+                { "AddMapsTexture", GlyphTextures.AddMaps(storageType) },
+                { "AlphamaskTexture", page.MaskPath }
+            };
+
+            return new MeshPart
+            {
+                Header = (int)Fnv1A(materialName),
+                OldHeader = signPart.OldHeader,
+                HasOldHeader = signPart.HasOldHeader,
+                Indices = indices,
+                HasMaterial = true,
+                MaterialName = materialName,
+                MaterialDescriptor = CloneMaterialDescriptor(signPart.MaterialDescriptor, version, materialName, textures)
+            };
+        }
+
+        static byte[] CloneMaterialDescriptor(byte[] descriptor, int version, string materialName,
+            Dictionary<string, string> textures)
+        {
+            if (version < 1052002)
+                throw new InvalidOperationException("Template material descriptor predates texture dictionaries.");
+
+            ByteReader r = new ByteReader(descriptor);
+            r.ReadString(); // original material name
+            int count = r.ReadInt32();
+            List<KeyValuePair<string, string>> entries = new List<KeyValuePair<string, string>>(count + textures.Count);
+            for (int i = 0; i < count; i++)
+            {
+                string key = r.ReadString();
+                string value = r.ReadString();
+                if (!textures.ContainsKey(key))
+                    entries.Add(new KeyValuePair<string, string>(key, value));
+            }
+            foreach (KeyValuePair<string, string> texture in textures)
+                entries.Add(texture);
+            byte[] tail = r.ReadRemainingBytes();
+
+            ByteWriter w = new ByteWriter(descriptor.Length + 512);
+            w.Write(materialName);
+            w.Write(entries.Count);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                w.Write(entries[i].Key);
+                w.Write(entries[i].Value);
+            }
+            w.Write(tail);
             return w.ToArray();
         }
 

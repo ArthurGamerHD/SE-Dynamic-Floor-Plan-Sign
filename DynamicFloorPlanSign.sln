@@ -4,6 +4,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DynamicFloorPlanSign", "Dyn
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Adk.Analyzer", "External\Adk\Adk.Analyzer\Adk.Analyzer.csproj", "{C956A396-1042-4E1C-86D5-2564D99FB134}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DynamicFloorPlanSignKoreanPatch", "DynamicFloorPlanSignKoreanPatch\DynamicFloorPlanSignKoreanPatch.csproj", "{84057BD1-562C-4862-B12D-9D3305041A48}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Release|Any CPU = Release|Any CPU
@@ -18,5 +20,9 @@ Global
 		{09106D27-36AC-4C6D-B636-B7EDBDB7BF14}.Release|Any CPU.Build.0 = Release|Any CPU
 		{09106D27-36AC-4C6D-B636-B7EDBDB7BF14}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{09106D27-36AC-4C6D-B636-B7EDBDB7BF14}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{84057BD1-562C-4862-B12D-9D3305041A48}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{84057BD1-562C-4862-B12D-9D3305041A48}.Release|Any CPU.Build.0 = Release|Any CPU
+		{84057BD1-562C-4862-B12D-9D3305041A48}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{84057BD1-562C-4862-B12D-9D3305041A48}.Debug|Any CPU.Build.0 = Debug|Any CPU
 	EndGlobalSection
 EndGlobal
