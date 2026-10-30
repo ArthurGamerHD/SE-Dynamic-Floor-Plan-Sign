@@ -40,7 +40,7 @@ namespace DynamicFloorPlanSign
             if (text == null)
             {
                 ClearStoredText(block);
-                if (MyAPIGateway.Utilities == null || !MyAPIGateway.Utilities.IsDedicated)
+                if (!Headless)
                     ApplyInteractiveVanillaModel(block);
                 return true;
             }
@@ -81,7 +81,7 @@ namespace DynamicFloorPlanSign
 
             StoreText(block, text);
 
-            if (MyAPIGateway.Utilities == null || !MyAPIGateway.Utilities.IsDedicated)
+            if (!Headless)
                 ApplyCustomTextModel(block, text);
 
             return true;
@@ -134,7 +134,7 @@ namespace DynamicFloorPlanSign
             {
                 MyCubeBlock restoredFat = restored.FatBlock as MyCubeBlock;
                 StoreText(restoredFat, oldText);
-                if (MyAPIGateway.Utilities == null || !MyAPIGateway.Utilities.IsDedicated)
+                if (!Headless)
                     ApplyCustomTextModel(restoredFat, oldText);
             }
             return false;

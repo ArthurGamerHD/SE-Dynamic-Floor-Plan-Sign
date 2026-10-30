@@ -378,6 +378,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
         /// </summary>
         public static string BuildModel(string text, Type storageType, Action onTexturesReady)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return null;
+
             if (string.IsNullOrWhiteSpace(text))
                 throw new InvalidOperationException("Sign text is empty.");
 
@@ -526,6 +529,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
         /// </summary>
         public static string BuildDetectorModel(string sourceModelPath, Type storageType)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return null;
+
             if (string.IsNullOrWhiteSpace(sourceModelPath))
                 throw new ArgumentException("sourceModelPath");
 
@@ -568,7 +574,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
             DetectorModelCache.Clear();
             GlyphTextures.ClearSession();
 
-            if (MyAPIGateway.Utilities == null || MyAPIGateway.Utilities.GamePaths == null)
+            if (DynamicFloorPlanSignSession.Headless || MyAPIGateway.Utilities.GamePaths == null)
                 return;
 
             // Do not trust only this session's in-memory list. Old game sessions, mod versions,
@@ -623,6 +629,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
         internal static string GetLocalStorageAbsolutePath(string fileName)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return null;
+
             return Path.Combine(GetLocalStorageRoot(), fileName);
         }
 
@@ -693,17 +702,20 @@ namespace DynamicFloorPlanSign.Client.Rendering
             float maxHeight = yMax - yMin;
             float naturalWidth = 0f;
             int drawableCount = 0;
+            string font = null;
 
             for (int i = 0; i < text.Length; i++)
             {
                 char c = text[i];
+                if (SkipFontTag(text, ref i, ref font))
+                    continue;
                 if (c == ' ')
                 {
                     naturalWidth += maxHeight * 0.45f;
                     continue;
                 }
 
-                naturalWidth += maxHeight * GetCharacterAdvance(c);
+                naturalWidth += maxHeight * GetCharacterAdvance(c, font);
                 drawableCount++;
             }
 
@@ -736,16 +748,19 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
             float totalWidth = 0f;
             drawableCount = 0;
+            font = null;
             for (int i = 0; i < text.Length; i++)
             {
                 char c = text[i];
+                if (SkipFontTag(text, ref i, ref font))
+                    continue;
                 if (c == ' ')
                 {
                     totalWidth += height * 0.45f;
                     continue;
                 }
 
-                totalWidth += height * GetCharacterAdvance(c);
+                totalWidth += height * GetCharacterAdvance(c, font);
                 drawableCount++;
             }
             if (drawableCount > 1)
@@ -760,25 +775,41 @@ namespace DynamicFloorPlanSign.Client.Rendering
             float lineY0 = (yMin + yMax - height) * 0.5f;
             float lineY1 = lineY0 + height;
             List<GlyphQuad> result = new List<GlyphQuad>();
+            font = null;
 
             for (int i = 0; i < text.Length; i++)
             {
                 char c = text[i];
+                if (SkipFontTag(text, ref i, ref font))
+                    continue;
                 if (c == ' ')
                 {
                     x += height * 0.45f;
                     continue;
                 }
 
-                float w = height * GetCharacterAdvance(c);
-                AppendCharacterQuads(result, c, x, x + w, lineY0, lineY1);
+                float w = height * GetCharacterAdvance(c, font);
+                AppendCharacterQuads(result, c, font, x, x + w, lineY0, lineY1);
                 x += w + gap;
             }
 
             return result;
         }
 
-        static float GetCharacterAdvance(char c)
+        /// <summary>Consumes a [font] tag at <paramref name="i"/>, updating the active span font.</summary>
+        static bool SkipFontTag(string text, ref int i, ref string font)
+        {
+            string tagFont;
+            int tagLength;
+            if (!SignTextRules.TryReadFontTag(text, i, out tagFont, out tagLength))
+                return false;
+
+            font = tagFont;
+            i += tagLength - 1;
+            return true;
+        }
+
+        static float GetCharacterAdvance(char c, string font)
         {
             switch (c)
             {
@@ -796,7 +827,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
             }
 
             SignFontGlyph g;
-            if (SignFonts.TryGetGlyph(c, out g))
+            if (SignFonts.TryGetGlyph(c, font, out g))
                 return (float)g.Advance / g.Height;
 
             throw new InvalidOperationException("No font glyph or runtime primitive for '" + c + "'.");
@@ -820,7 +851,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
             return (float)g.Width / g.Height;
         }
 
-        static void AppendCharacterQuads(List<GlyphQuad> result, char c, float x0, float x1, float y0, float y1)
+        static void AppendCharacterQuads(List<GlyphQuad> result, char c, string font, float x0, float x1, float y0, float y1)
         {
             if (c == '<' || c == '>')
             {
@@ -846,7 +877,7 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
             if (!SignTextRules.IsRuntimePrimitive(c))
             {
-                AppendFontGlyphQuad(result, c, x0, y0, y1);
+                AppendFontGlyphQuad(result, c, font, x0, y0, y1);
                 return;
             }
 
@@ -914,10 +945,10 @@ namespace DynamicFloorPlanSign.Client.Rendering
             }
         }
 
-        static void AppendFontGlyphQuad(List<GlyphQuad> result, char c, float penX, float y0, float y1)
+        static void AppendFontGlyphQuad(List<GlyphQuad> result, char c, string font, float penX, float y0, float y1)
         {
             SignFontGlyph g;
-            if (!SignFonts.TryGetGlyph(c, out g))
+            if (!SignFonts.TryGetGlyph(c, font, out g))
                 throw new InvalidOperationException("No font glyph for '" + c + "'.");
 
             float scale = (y1 - y0) / g.Height;

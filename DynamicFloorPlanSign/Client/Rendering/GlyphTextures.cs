@@ -53,6 +53,10 @@ namespace DynamicFloorPlanSign.Client.Rendering
         /// </summary>
         public static bool TryGetMask(SignFontBitmap bitmap, Type storageType, Action onReady, out string path)
         {
+            path = null;
+            if (DynamicFloorPlanSignSession.Headless)
+                return false;
+
             if (Masks.TryGetValue(bitmap, out path))
                 return true;
 
@@ -89,6 +93,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
         static void GenerateMask(MaskJob job)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return;
+
             try
             {
                 SignFontBitmap bitmap = job.Bitmap;
@@ -123,6 +130,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
         static void CompleteMask(MaskJob job)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return;
+
             MaskJob current;
             if (!Pending.TryGetValue(job.Bitmap, out current) || current != job)
                 return; // The session was cleared while the job ran.
@@ -205,6 +215,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
         static string EnsureSolid(string fileName, byte r, byte g, byte b, byte a, SpaceEngineersTextureKind kind,
             Type storageType)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return null;
+
             string path;
             if (Solids.TryGetValue(fileName, out path))
                 return path;
@@ -222,6 +235,9 @@ namespace DynamicFloorPlanSign.Client.Rendering
 
         static void WriteStorageFile(string fileName, byte[] data, Type storageType)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return;
+
             using (BinaryWriter writer = MyAPIGateway.Utilities.WriteBinaryFileInLocalStorage(fileName, storageType))
             {
                 writer.Write(data);

@@ -46,7 +46,7 @@ namespace DynamicFloorPlanSign.Client.UI
         {
             get
             {
-                if (_block == null || _block.Render == null)
+                if (DynamicFloorPlanSignSession.Headless || _block == null || _block.Render == null)
                     return uint.MaxValue;
 
                 uint[] ids = _block.Render.RenderObjectIDs;

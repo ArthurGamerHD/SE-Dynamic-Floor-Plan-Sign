@@ -39,6 +39,7 @@ namespace DynamicFloorPlanSign.Common.Fonts
     internal sealed class SignFont
     {
         public string Name;
+        public string Face;
         public int Priority;
         public string XmlPath;
         public int MaskDilation;
@@ -160,6 +161,36 @@ namespace DynamicFloorPlanSign.Common.Fonts
             return TryGetGlyph(c, out glyph);
         }
 
+        /// <summary>
+        /// Looks <paramref name="c"/> up in the fonts named <paramref name="fontName"/> (a [font="..."] tag, matched
+        /// against the XML face or name) first, then falls back to the priority order. Null means no tag.
+        /// </summary>
+        public static bool TryGetGlyph(char c, string fontName, out SignFontGlyph glyph)
+        {
+            if (fontName != null)
+            {
+                for (int i = 0; i < Fonts.Count; i++)
+                {
+                    if (IsNamed(Fonts[i], fontName) && Fonts[i].Glyphs.TryGetValue(c, out glyph))
+                        return true;
+                }
+            }
+
+            return TryGetGlyph(c, out glyph);
+        }
+
+        public static bool HasGlyph(char c, string fontName)
+        {
+            SignFontGlyph glyph;
+            return TryGetGlyph(c, fontName, out glyph);
+        }
+
+        static bool IsNamed(SignFont font, string name)
+        {
+            return string.Equals(font.Face, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(font.Name, name, StringComparison.OrdinalIgnoreCase);
+        }
+
         static SignFont LoadFont(string xmlPath, List<int[]> characters, MyObjectBuilder_Checkpoint.ModItem modItem)
         {
             string xml;
@@ -177,6 +208,7 @@ namespace DynamicFloorPlanSign.Common.Fonts
             SignFont font = new SignFont
             {
                 Name = string.IsNullOrEmpty(data.Name) ? xmlPath : data.Name,
+                Face = data.Face,
                 XmlPath = xmlPath,
                 ModItem = modItem
             };
@@ -189,12 +221,16 @@ namespace DynamicFloorPlanSign.Common.Fonts
                 ParsePair(b.Size, 'x', out width, out height);
                 string path = NormalizeContentPath(folder + b.Name);
 
-                bool inMod = MyAPIGateway.Utilities.FileExistsInModLocation(path, modItem);
-                if (!inMod && !MyAPIGateway.Utilities.FileExistsInGameContent(path))
+                bool inMod = false;
+                if (!DynamicFloorPlanSignSession.Headless)
                 {
-                    LogHelper.Log(MyLogSeverity.Warning, "sign font '" + font.Name + "' bitmap " + b.Id + " not found in "
-                        + modItem.Name + " or game content: " + path + "; its glyphs are unavailable");
-                    continue;
+                    inMod = MyAPIGateway.Utilities.FileExistsInModLocation(path, modItem);
+                    if (!inMod && !MyAPIGateway.Utilities.FileExistsInGameContent(path))
+                    {
+                        LogHelper.Log(MyLogSeverity.Warning, "sign font '" + font.Name + "' bitmap " + b.Id + " not found in "
+                            + modItem.Name + " or game content: " + path + "; its glyphs are unavailable");
+                        continue;
+                    }
                 }
 
                 font.Bitmaps[b.Id] = new SignFontBitmap

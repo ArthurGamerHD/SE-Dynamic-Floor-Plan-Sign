@@ -157,7 +157,8 @@ namespace DynamicFloorPlanSign
                 return;
 
             _tracked[block.EntityId] = block;
-            block.OnBlockModelChange += OnBlockModelChange;
+            if (!Headless)
+                block.OnBlockModelChange += OnBlockModelChange;
         }
     }
 }

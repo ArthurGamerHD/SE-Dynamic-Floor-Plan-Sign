@@ -45,8 +45,15 @@ namespace DynamicFloorPlanSign.Common
         public const int MAX_LINE_LENGTH = 32;
         public const int MAX_LENGTH = MAX_LINE_LENGTH; // Backward-compatible alias for the original single-line limit.
         public const int MAX_VISIBLE_LENGTH = MAX_LINE_LENGTH * 2;
-        // Storage form may contain one newline plus optional marker controls in addition to visible text.
-        public const int MAX_SERIALIZED_LENGTH = MAX_VISIBLE_LENGTH + 1 + 32;
+        public const int MAX_FONT_NAME_LENGTH = 32;
+        public const int MAX_FONT_SPANS_PER_LINE = 4;
+        const string FONT_OPEN_TAG = "[FONT=\"";
+        const string FONT_CLOSE_TAG = "[/FONT]";
+        // [FONT="name"] + [/FONT]
+        const int MAX_FONT_SPAN_LENGTH = 7 + MAX_FONT_NAME_LENGTH + 2 + 7;
+        // Storage form may contain one newline plus optional marker controls and [font] spans in addition to visible text.
+        public const int MAX_SERIALIZED_LENGTH = MAX_VISIBLE_LENGTH + 1 + 32
+            + 2 * MAX_FONT_SPANS_PER_LINE * MAX_FONT_SPAN_LENGTH;
 
         public static string Normalize(string input)
         {
@@ -195,13 +202,23 @@ namespace DynamicFloorPlanSign.Common
             result.Append(']');
         }
 
+        sealed class LineBuilder
+        {
+            public readonly StringBuilder Text = new StringBuilder(MAX_LINE_LENGTH);
+            public int VisibleLength;
+            // Font of the span left open at the end of Text; null is the default font.
+            public string Font;
+            public int FontSpans;
+        }
+
         static string NormalizeVisibleText(string source)
         {
-            StringBuilder first = new StringBuilder(MAX_LINE_LENGTH);
-            StringBuilder second = null;
-            StringBuilder current = first;
+            LineBuilder first = new LineBuilder();
+            LineBuilder second = null;
+            LineBuilder current = first;
             bool pendingSpace = false;
             bool hasNewline = false;
+            string requestedFont = null;
 
             for (int i = 0; i < source.Length; i++)
             {
@@ -210,24 +227,38 @@ namespace DynamicFloorPlanSign.Common
                 if (c == '\r')
                     continue;
 
+                string tagFont;
+                int tagLength;
+                if (TryReadFontTag(source, i, out tagFont, out tagLength))
+                {
+                    requestedFont = tagFont;
+                    i += tagLength - 1;
+                    continue;
+                }
+
                 if (c == '\n')
                 {
                     if (!hasNewline)
                     {
-                        TrimTrailingSpace(current);
-                        second = new StringBuilder(MAX_LINE_LENGTH);
+                        // Spans never cross lines; the requested font reopens on the second line.
+                        SwitchFont(current, null);
+                        TrimTrailingSpace(current.Text);
+                        second = new LineBuilder();
                         current = second;
                         hasNewline = true;
                         pendingSpace = false;
                     }
-                    else if (current.Length > 0)
+                    else if (current.VisibleLength > 0)
                     {
                         pendingSpace = true;
                     }
                     continue;
                 }
 
-                if (c >= '0' && c <= '9')
+                string font = EffectiveFont(current, requestedFont);
+
+                // Digits become Roman numerals unless a [font] span supplies digit glyphs.
+                if (c >= '0' && c <= '9' && (font == null || !SignFonts.HasGlyph(c, font)))
                 {
                     long value = 0;
                     while (i < source.Length && source[i] >= '0' && source[i] <= '9')
@@ -239,37 +270,90 @@ namespace DynamicFloorPlanSign.Common
                     }
                     i--;
 
-                    AppendVisibleToken(current, ToRoman(value), ref pendingSpace);
+                    AppendVisibleToken(current, ToRoman(value), font, ref pendingSpace);
                     continue;
                 }
 
-                if (IsRuntimePrimitive(c) || (!char.IsWhiteSpace(c) && SignFonts.HasGlyph(c)))
+                if (IsRuntimePrimitive(c) || (!char.IsWhiteSpace(c) && SignFonts.HasGlyph(c, font)))
                 {
-                    AppendVisibleToken(current, c.ToString(), ref pendingSpace);
+                    AppendVisibleToken(current, c.ToString(), font, ref pendingSpace);
                     continue;
                 }
 
                 if (!char.IsWhiteSpace(c))
                     continue;
 
-                if (current.Length > 0)
+                if (current.VisibleLength > 0)
                     pendingSpace = true;
             }
 
-            TrimTrailingSpace(first);
+            SwitchFont(first, null);
+            TrimTrailingSpace(first.Text);
             if (second != null)
-                TrimTrailingSpace(second);
+            {
+                SwitchFont(second, null);
+                TrimTrailingSpace(second.Text);
+            }
 
             if (!hasNewline)
-                return first.ToString();
+                return first.Text.ToString();
 
             // Do not preserve an empty second line; an empty first line is allowed only if the second has text.
-            if (second == null || second.Length == 0)
-                return first.ToString();
-            if (first.Length == 0)
-                return second.ToString();
+            if (second == null || second.VisibleLength == 0)
+                return first.Text.ToString();
+            if (first.VisibleLength == 0)
+                return second.Text.ToString();
 
-            return first.ToString() + "\n" + second.ToString();
+            return first.Text.ToString() + "\n" + second.Text.ToString();
+        }
+
+        /// <summary>
+        /// Reads a [font="name"] (quotes optional) or [/font] tag at <paramref name="index"/>; <paramref name="font"/>
+        /// is null for the closing tag. Case-insensitive, so it also reads the canonical uppercase form.
+        /// </summary>
+        public static bool TryReadFontTag(string text, int index, out string font, out int length)
+        {
+            font = null;
+            length = 0;
+            if (index >= text.Length || text[index] != '[')
+                return false;
+
+            if (string.Compare(text, index, FONT_CLOSE_TAG, 0, FONT_CLOSE_TAG.Length, StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                length = FONT_CLOSE_TAG.Length;
+                return true;
+            }
+
+            const string OPEN = "[FONT=";
+            if (string.Compare(text, index, OPEN, 0, OPEN.Length, StringComparison.OrdinalIgnoreCase) != 0)
+                return false;
+
+            int start = index + OPEN.Length;
+            bool quoted = start < text.Length && text[start] == '"';
+            if (quoted)
+                start++;
+
+            int end = start;
+            while (end < text.Length && text[end] != '"' && text[end] != ']' && text[end] != '[' && text[end] != '\n')
+                end++;
+
+            int close = end;
+            if (quoted)
+            {
+                if (close >= text.Length || text[close] != '"')
+                    return false;
+                close++;
+            }
+            if (close >= text.Length || text[close] != ']')
+                return false;
+
+            string name = text.Substring(start, end - start).Trim();
+            if (name.Length == 0 || name.Length > MAX_FONT_NAME_LENGTH)
+                return false;
+
+            font = name;
+            length = close + 1 - index;
+            return true;
         }
 
         public static bool IsRuntimePrimitive(char c)
@@ -277,26 +361,51 @@ namespace DynamicFloorPlanSign.Common
             return c == '|' || c == '/' || c == '\\' || c == '+' || c == '-' || c == '=' || c == '_' || c == '<' || c == '>';
         }
 
-        static void AppendVisibleToken(StringBuilder result, string token, ref bool pendingSpace)
+        static string EffectiveFont(LineBuilder line, string requestedFont)
         {
-            if (string.IsNullOrEmpty(token) || result.Length >= MAX_LINE_LENGTH)
+            // Past the span limit a line keeps its current font instead of opening another span.
+            if (requestedFont != null && line.FontSpans >= MAX_FONT_SPANS_PER_LINE
+                && !string.Equals(line.Font, requestedFont, StringComparison.OrdinalIgnoreCase))
+                return line.Font;
+            return requestedFont;
+        }
+
+        static void SwitchFont(LineBuilder line, string font)
+        {
+            if (string.Equals(line.Font, font, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            if (line.Font != null)
+                line.Text.Append(FONT_CLOSE_TAG);
+            if (font != null)
+            {
+                line.Text.Append(FONT_OPEN_TAG).Append(font).Append("\"]");
+                line.FontSpans++;
+            }
+            line.Font = font;
+        }
+
+        static void AppendVisibleToken(LineBuilder line, string token, string font, ref bool pendingSpace)
+        {
+            if (string.IsNullOrEmpty(token) || line.VisibleLength >= MAX_LINE_LENGTH)
             {
                 pendingSpace = false;
                 return;
             }
 
-            if (pendingSpace && result.Length > 0 && result.Length < MAX_LINE_LENGTH - 1)
-                result.Append(' ');
+            // Font tags go before the separating space so re-normalizing yields the same string.
+            SwitchFont(line, font);
+
+            if (pendingSpace && line.VisibleLength > 0 && line.VisibleLength < MAX_LINE_LENGTH - 1)
+            {
+                line.Text.Append(' ');
+                line.VisibleLength++;
+            }
             pendingSpace = false;
 
-            int remaining = MAX_LINE_LENGTH - result.Length;
-            if (remaining <= 0)
-                return;
-
-            if (token.Length <= remaining)
-                result.Append(token);
-            else
-                result.Append(token, 0, remaining);
+            int count = Math.Min(token.Length, MAX_LINE_LENGTH - line.VisibleLength);
+            line.Text.Append(token, 0, count);
+            line.VisibleLength += count;
         }
 
         static void TrimTrailingSpace(StringBuilder result)

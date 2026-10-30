@@ -21,7 +21,7 @@ namespace DynamicFloorPlanSign
 
         void RestoreTrackedModels()
         {
-            if (MyAPIGateway.Utilities != null && MyAPIGateway.Utilities.IsDedicated)
+            if (Headless)
                 return;
 
             List<MyCubeBlock> blocks = new List<MyCubeBlock>(_tracked.Values);
@@ -31,10 +31,7 @@ namespace DynamicFloorPlanSign
 
         public void RestoreBlockModel(MyCubeBlock block)
         {
-            if (block == null || block.MarkedForClose || !IsFloorPlan(block.SlimBlock))
-                return;
-
-            if (MyAPIGateway.Utilities != null && MyAPIGateway.Utilities.IsDedicated)
+            if (Headless || block == null || block.MarkedForClose || !IsFloorPlan(block.SlimBlock))
                 return;
 
             string customText;
@@ -82,14 +79,14 @@ namespace DynamicFloorPlanSign
             }
 
             ClearStoredText(block);
-            if (MyAPIGateway.Utilities == null || !MyAPIGateway.Utilities.IsDedicated)
+            if (!Headless)
                 ApplyInteractiveVanillaModel(block);
             Notify("Restored vanilla model for " + text);
         }
 
         void OnBlockModelChange(MyCubeBlock block)
         {
-            if (!_startupReady || block == null || _applying.Contains(block.EntityId) || !IsFloorPlan(block.SlimBlock))
+            if (Headless || !_startupReady || block == null || _applying.Contains(block.EntityId) || !IsFloorPlan(block.SlimBlock))
                 return;
 
             RestoreBlockModel(block);
@@ -97,7 +94,7 @@ namespace DynamicFloorPlanSign
 
         void ApplyCustomTextModel(MyCubeBlock block, string text)
         {
-            if (block == null || string.IsNullOrEmpty(text))
+            if (Headless || block == null || string.IsNullOrEmpty(text))
                 return;
 
             Matrix orientation;
@@ -115,7 +112,7 @@ namespace DynamicFloorPlanSign
 
         void ApplyInteractiveVanillaModel(MyCubeBlock block)
         {
-            if (block == null)
+            if (Headless || block == null)
                 return;
 
             Matrix orientation;
@@ -132,7 +129,7 @@ namespace DynamicFloorPlanSign
         /// </summary>
         void ApplyRenderModelKeepingVanillaState(MyCubeBlock block, string renderModel, string vanillaModel)
         {
-            if (block == null || string.IsNullOrWhiteSpace(renderModel) || string.IsNullOrWhiteSpace(vanillaModel))
+            if (Headless || block == null || string.IsNullOrWhiteSpace(renderModel) || string.IsNullOrWhiteSpace(vanillaModel))
                 return;
 
             long id = block.EntityId;

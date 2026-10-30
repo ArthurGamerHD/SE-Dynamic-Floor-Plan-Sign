@@ -11,6 +11,9 @@ namespace DynamicFloorPlanSign.Common.Fonts
         [XmlAttribute("name")]
         public string Name;
 
+        [XmlAttribute("face")]
+        public string Face;
+
         [XmlAttribute("height")]
         public int Height;
 

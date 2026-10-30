@@ -41,6 +41,9 @@ namespace DynamicFloorPlanSign.Client.UI
             string subtitle = "",
             bool readOnly = false)
         {
+            if (DynamicFloorPlanSignSession.Headless)
+                return;
+
             _currentTitle = title ?? string.Empty;
             _currentSubTitle = subtitle ?? string.Empty;
             _initialText = initialText ?? string.Empty;
@@ -202,6 +205,9 @@ namespace DynamicFloorPlanSign.Client.UI
 
             MyAPIGateway.Utilities.InvokeOnGameThread(delegate
             {
+                if (DynamicFloorPlanSignSession.Headless)
+                    return;
+
                 IMyEntity entity = MyAPIGateway.Entities.CreateFromObjectBuilderAndAdd(gridBuilder);
                 if (entity == null)
                 {

@@ -18,6 +18,10 @@ namespace DynamicFloorPlanSign
     {
         internal static DynamicFloorPlanSignSession Instance;
 
+        // Dedicated servers have no render assets.
+        internal static bool Headless =>
+            MyAPIGateway.Utilities.IsDedicated && MyAPIGateway.Session.IsServer;
+
         const string NATIVE_FONT_XML = @"SignFonts\Native\FontData.xml";
 
         List<Action> _nextFrame = new List<Action>();
@@ -43,18 +47,12 @@ namespace DynamicFloorPlanSign
 
             MyAPIGateway.Utilities.MessageEntered += OnMessageEntered;
 
-            if (MyAPIGateway.Multiplayer != null)
-            {
-                _network = new NetworkManager(new NetworkParameters(NETWORK_CHANNEL, 4096, 16384, 4));
-                _network.Init();
-            }
+            _network = new NetworkManager(new NetworkParameters(NETWORK_CHANNEL, 4096, 16384, 4));
+            _network.Init();
 
-            if (MyAPIGateway.Entities != null)
-            {
-                MyAPIGateway.Entities.OnEntityAdd += OnEntityAdd;
-                MyAPIGateway.Entities.OnEntityRemove += OnEntityRemove;
-                RestoreExistingEntities();
-            }
+            MyAPIGateway.Entities.OnEntityAdd += OnEntityAdd;
+            MyAPIGateway.Entities.OnEntityRemove += OnEntityRemove;
+            RestoreExistingEntities();
 
             // Entity storage/model state can still be settling during BeforeStart.
             // Track everything now, but defer model regeneration until simulation has begun.
@@ -110,14 +108,9 @@ namespace DynamicFloorPlanSign
 
             if (_registered)
             {
-                if (MyAPIGateway.Utilities != null)
-                    MyAPIGateway.Utilities.MessageEntered -= OnMessageEntered;
-
-                if (MyAPIGateway.Entities != null)
-                {
-                    MyAPIGateway.Entities.OnEntityAdd -= OnEntityAdd;
-                    MyAPIGateway.Entities.OnEntityRemove -= OnEntityRemove;
-                }
+                MyAPIGateway.Utilities.MessageEntered -= OnMessageEntered;
+                MyAPIGateway.Entities.OnEntityAdd -= OnEntityAdd;
+                MyAPIGateway.Entities.OnEntityRemove -= OnEntityRemove;
             }
 
             if (_network != null)
@@ -142,6 +135,7 @@ namespace DynamicFloorPlanSign
             }
 
             RuntimeMwmBuilder.ClearSessionCache(typeof(DynamicFloorPlanSignSession));
+
             SignFonts.Unload();
 
             _tracked.Clear();

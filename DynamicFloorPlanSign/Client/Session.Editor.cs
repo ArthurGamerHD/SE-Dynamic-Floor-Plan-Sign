@@ -58,7 +58,7 @@ namespace DynamicFloorPlanSign
                 "Floor Plan Sign editor",
                 delegate(string entered) { SubmitText(gridId, position, entered); },
                 initialText,
-                "A-Z, spaces, | / \\ + - = _ < >; max " + SignTextRules.MAX_LINE_LENGTH + " chars/line, 2 lines");
+                "A-Z, spaces, | / \\ + - = _ < >, [font=\"name\"]...[/font]; max " + SignTextRules.MAX_LINE_LENGTH + " chars/line, 2 lines");
         }
 
         void OnMessageEntered(string messageText, ref bool sendToOthers)
