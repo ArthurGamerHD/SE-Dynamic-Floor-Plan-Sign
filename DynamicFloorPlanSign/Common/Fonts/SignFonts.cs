@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Adk.Utils;
+using Sandbox.Definitions;
 using Sandbox.ModAPI;
 using VRage;
 using VRage.Game;
+using VRage.Game.Definitions;
 using VRage.Utils;
 
 namespace DynamicFloorPlanSign.Common.Fonts
@@ -40,6 +42,8 @@ namespace DynamicFloorPlanSign.Common.Fonts
     {
         public string Name;
         public string Face;
+        // SubtypeIds of the Fonts.sbc definitions backed by this XML, i.e. the in-game font names.
+        public readonly List<string> DefinitionNames = new List<string>();
         public int Priority;
         public string XmlPath;
         public int MaskDilation;
@@ -185,10 +189,73 @@ namespace DynamicFloorPlanSign.Common.Fonts
             return TryGetGlyph(c, fontName, out glyph);
         }
 
+        /// <summary>True when a [font="..."] tag naming <paramref name="fontName"/> selects a registered font.</summary>
+        public static bool IsKnownFont(string fontName)
+        {
+            for (int i = 0; i < Fonts.Count; i++)
+            {
+                if (IsNamed(Fonts[i], fontName))
+                    return true;
+            }
+            return false;
+        }
+
         static bool IsNamed(SignFont font, string name)
         {
-            return string.Equals(font.Face, name, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(font.Name, name, StringComparison.OrdinalIgnoreCase);
+            if (string.Equals(font.Face, name, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(font.Name, name, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            for (int i = 0; i < font.DefinitionNames.Count; i++)
+            {
+                if (string.Equals(font.DefinitionNames[i], name, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Collects the SubtypeIds of the font mod's Fonts.sbc definitions that point at this font's XML, so tags can
+        /// use the name players see in game (e.g. "Dragon-Alphabet") as well as the XML face.
+        /// </summary>
+        static void AddDefinitionNames(SignFont font)
+        {
+            string xmlPath = NormalizeContentPath(font.XmlPath);
+            foreach (MyDefinitionBase definition in MyDefinitionManager.Static.GetAllDefinitions())
+            {
+                MyFontDefinition fontDefinition = definition as MyFontDefinition;
+                if (fontDefinition == null || fontDefinition.Context == null
+                    || fontDefinition.Context.ModItem.Name != font.ModItem.Name)
+                    continue;
+
+                bool matches = PathEndsWith(fontDefinition.CompatibilityPath, xmlPath);
+                if (!matches && fontDefinition.Resources != null)
+                {
+                    foreach (MyObjectBuilder_FontData resource in fontDefinition.Resources)
+                    {
+                        if (PathEndsWith(resource.Path, xmlPath))
+                        {
+                            matches = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (matches)
+                    font.DefinitionNames.Add(fontDefinition.Id.SubtypeName);
+            }
+        }
+
+        static bool PathEndsWith(string path, string suffix)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            // Definition paths may be absolute (resolved against the mod folder) or mod-relative.
+            string normalized = path.Replace('/', '\\');
+            if (!normalized.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return normalized.Length == suffix.Length || normalized[normalized.Length - suffix.Length - 1] == '\\';
         }
 
         static SignFont LoadFont(string xmlPath, List<int[]> characters, MyObjectBuilder_Checkpoint.ModItem modItem)
@@ -212,6 +279,7 @@ namespace DynamicFloorPlanSign.Common.Fonts
                 XmlPath = xmlPath,
                 ModItem = modItem
             };
+            AddDefinitionNames(font);
 
             int slash = Math.Max(xmlPath.LastIndexOf('\\'), xmlPath.LastIndexOf('/'));
             string folder = slash < 0 ? string.Empty : xmlPath.Substring(0, slash + 1);

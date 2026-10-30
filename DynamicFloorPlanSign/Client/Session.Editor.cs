@@ -94,6 +94,10 @@ namespace DynamicFloorPlanSign
 
         public void SubmitText(long gridId, Vector3I position, string rawText)
         {
+            string unknownFont = SignTextRules.FindUnknownFont(rawText);
+            if (unknownFont != null)
+                Notify("Unknown sign font '" + unknownFont + "'; using the default font.", MyFontEnum.Red);
+
             string normalized = SignTextRules.Normalize(rawText);
             if (normalized.Length == 0)
             {

@@ -231,7 +231,8 @@ namespace DynamicFloorPlanSign.Common
                 int tagLength;
                 if (TryReadFontTag(source, i, out tagFont, out tagLength))
                 {
-                    requestedFont = tagFont;
+                    // An unknown font name is dropped rather than kept as a span that silently renders in fallback fonts.
+                    requestedFont = tagFont != null && SignFonts.IsKnownFont(tagFont) ? tagFont : null;
                     i += tagLength - 1;
                     continue;
                 }
@@ -305,6 +306,26 @@ namespace DynamicFloorPlanSign.Common
                 return second.Text.ToString();
 
             return first.Text.ToString() + "\n" + second.Text.ToString();
+        }
+
+        /// <summary>Returns the first [font] tag name in <paramref name="input"/> that matches no registered font, or null.</summary>
+        public static string FindUnknownFont(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return null;
+
+            for (int i = 0; i < input.Length; i++)
+            {
+                string font;
+                int length;
+                if (!TryReadFontTag(input, i, out font, out length))
+                    continue;
+
+                if (font != null && !SignFonts.IsKnownFont(font))
+                    return font;
+                i += length - 1;
+            }
+            return null;
         }
 
         /// <summary>
